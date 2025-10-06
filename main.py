@@ -1,5 +1,6 @@
 import os
 import asyncio
+import json
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,11 +17,27 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 PORT = int(os.getenv("PORT", 8000))
 ROOM_LINK = "https://www.habblet.city/room/6065930"
 GIF_URL = "https://cdn.discordapp.com/attachments/1303772458762895480/1424811285542863000/load-32.gif"
-UPDATE_INTERVAL = 60  # tempo mínimo entre atualizações em segundos
+UPDATE_INTERVAL = 300
+API_KEY = os.getenv("API_KEY")
 
+MESSAGE_ID_FILE = "message_id.json"
 MESSAGE_ID = None
 LAST_UPDATE = 0
-PENDING_DATA = None  # guarda o último dado recebido
+PENDING_DATA = None  # Guarda o último dado recebido
+
+# ------------------ FUNÇÕES DE PERSISTÊNCIA ------------------
+def save_message_id(msg_id):
+    with open(MESSAGE_ID_FILE, "w") as f:
+        json.dump({"id": msg_id}, f)
+
+def load_message_id():
+    global MESSAGE_ID
+    try:
+        with open(MESSAGE_ID_FILE, "r") as f:
+            data = json.load(f)
+            MESSAGE_ID = data.get("id")
+    except FileNotFoundError:
+        MESSAGE_ID = None
 
 # ------------------ CONFIGURAÇÃO DO BOT ------------------
 intents = discord.Intents.default()
@@ -36,57 +53,6 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-API_KEY = os.getenv("API_KEY")
-
-# ------------------ FUNÇÃO DE ATUALIZAÇÃO DO EMBED ------------------
-async def update_embed_if_needed():
-    global MESSAGE_ID, LAST_UPDATE, PENDING_DATA
-    if not PENDING_DATA:
-        return
-
-    now = datetime.now().timestamp()
-    if now - LAST_UPDATE < UPDATE_INTERVAL:
-        # ainda não passou o tempo mínimo
-        return
-
-    try:
-        channel = await bot.fetch_channel(CHANNEL_ID)
-        room_name = PENDING_DATA["room_name"]
-        user_count = PENDING_DATA["user_count"]
-
-        embed = discord.Embed(
-            title=f"{room_name.upper()}",
-            description="Chame seus amigos e vem jogar!",
-            color=discord.Colour.default()
-        )
-        embed.set_thumbnail(url=GIF_URL)
-        embed.add_field(
-            name="Usuários atuais",
-            value=f"```fix\n🎮 {user_count} Usuários no quarto\n```",
-            inline=False
-        )
-        embed.add_field(
-            name="Link do quarto",
-            value=f"```fix\nAcesse o quarto abaixo\n```\n➡️ [Clique aqui para entrar]({ROOM_LINK})",
-            inline=False
-        )
-        embed.set_footer(text=f"Atualizado em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-
-        if MESSAGE_ID is None:
-            msg = await channel.send(embed=embed)
-            MESSAGE_ID = msg.id
-            print(f"[DEBUG] Mensagem enviada: {MESSAGE_ID}")
-        else:
-            msg = await channel.fetch_message(MESSAGE_ID)
-            await msg.edit(embed=embed)
-            print("[DEBUG] Mensagem atualizada")
-
-        LAST_UPDATE = now
-        PENDING_DATA = None
-    except Exception as e:
-        print(f"[ERROR] Falha ao enviar/atualizar embed: {e}")
-
-# ------------------ ENDPOINT FASTAPI ------------------
 @app.post("/update-room")
 async def update_room(request: Request):
     global PENDING_DATA
@@ -101,30 +67,82 @@ async def update_room(request: Request):
     if not room_name or user_count is None:
         return {"error": "Dados inválidos"}, 400
 
-    # Salvar dados pendentes
+    # Guarda os dados para atualizar periodicamente
     PENDING_DATA = {"room_name": room_name, "user_count": user_count}
-    print(f"[DEBUG] Dados recebidos: {PENDING_DATA}")
-
-    # Chamar atualização imediatamente
-    asyncio.create_task(update_embed_if_needed())
-
     return {"status": "ok"}
+
+# ------------------ FUNÇÃO DE ATUALIZAÇÃO DO EMBED ------------------
+async def update_embed_periodically():
+    global MESSAGE_ID, LAST_UPDATE, PENDING_DATA
+    await bot.wait_until_ready()
+    channel = bot.get_channel(CHANNEL_ID)
+    if not channel:
+        print("Canal não encontrado!")
+        return
+
+    load_message_id()
+    print(f"Iniciando loop de atualização no canal: {channel.name} ({CHANNEL_ID})")
+
+    while not bot.is_closed():
+        now = datetime.now().timestamp()
+        if PENDING_DATA and now - LAST_UPDATE >= UPDATE_INTERVAL:
+            try:
+                room_name = PENDING_DATA["room_name"]
+                user_count = PENDING_DATA["user_count"]
+
+                embed = discord.Embed(
+                    title=f"{room_name.upper()}",
+                    description="Chame seus amigos e vem jogar!",
+                    color=discord.Colour.default()
+                )
+                embed.set_thumbnail(url=GIF_URL)
+                embed.add_field(
+                    name="",
+                    value=f"```fix\n🎮 {user_count} Usuários no quarto\n```",
+                    inline=False
+                )
+                embed.add_field(
+                    name="Link do quarto",
+                    value=f"[Clique aqui para entrar]({ROOM_LINK})",
+                    inline=False
+                )
+                embed.set_footer(text=f"Atualizado em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+
+                if MESSAGE_ID is None:
+                    msg = await channel.send(embed=embed)
+                    MESSAGE_ID = msg.id
+                    save_message_id(MESSAGE_ID)
+                    print(f"Mensagem enviada: {MESSAGE_ID}")
+                else:
+                    try:
+                        msg = await channel.fetch_message(MESSAGE_ID)
+                        await msg.edit(embed=embed)
+                        print("Mensagem atualizada")
+                    except discord.errors.NotFound:
+                        # Se a mensagem foi deletada, enviar nova
+                        msg = await channel.send(embed=embed)
+                        MESSAGE_ID = msg.id
+                        save_message_id(MESSAGE_ID)
+                        print("Mensagem anterior não encontrada. Nova mensagem enviada.")
+
+                LAST_UPDATE = now
+            except Exception as e:
+                print("Erro ao atualizar embed:", e)
+
+        await asyncio.sleep(5)  # verifica a cada 5 segundos se há atualização
 
 # ------------------ FUNÇÃO PRINCIPAL ------------------
 async def main():
-    # Iniciar FastAPI em task separada
+    # Cria task do FastAPI
     config = uvicorn.Config(app, host="0.0.0.0", port=PORT, log_level="info")
     server = uvicorn.Server(config)
     api_task = asyncio.create_task(server.serve())
 
-    # Iniciar bot
-    await bot.start(TOKEN)
+    # Cria task de atualização do embed
+    update_task = asyncio.create_task(update_embed_periodically())
 
-# ------------------ EVENTO ON READY ------------------
-@bot.event
-async def on_ready():
-    print(f"[INFO] Bot conectado como {bot.user}")
-    print(f"[INFO] Iniciando loop de atualização no canal: {CHANNEL_ID}")
+    # Inicia o bot
+    await bot.start(TOKEN)
 
 # ------------------ EXECUTAR ------------------
 if __name__ == "__main__":
