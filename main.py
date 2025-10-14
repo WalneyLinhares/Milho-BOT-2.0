@@ -17,7 +17,7 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 PORT = int(os.getenv("PORT", 8000))
 ROOM_LINK = "https://www.habblet.city/room/6065930"
 GIF_URL = "https://cdn.discordapp.com/attachments/1303772458762895480/1424811285542863000/load-32.gif"
-UPDATE_INTERVAL = 180
+UPDATE_INTERVAL = 20
 API_KEY = os.getenv("API_KEY")
 
 MESSAGE_ID_FILE = "message_id.json"
@@ -69,6 +69,7 @@ async def update_room(request: Request):
 
     # Guarda os dados para atualizar periodicamente
     PENDING_DATA = {"room_name": room_name, "user_count": user_count}
+    print(PENDING_DATA)
     return {"status": "ok"}
 
 # ------------------ FUNÇÃO DE ATUALIZAÇÃO DO EMBED ------------------
@@ -92,8 +93,7 @@ async def update_embed_periodically():
 
                 embed = discord.Embed(
                     title=f"{room_name.upper()}",
-                    description="Chame seus amigos e vem jogar!",
-                    color=discord.Colour.default()
+                    description="Chame seus amigos e vem jogar!"
                 )
                 embed.set_thumbnail(url=GIF_URL)
                 embed.add_field(
@@ -102,25 +102,39 @@ async def update_embed_periodically():
                     inline=False
                 )
                 embed.add_field(
-                    name="Link do quarto",
-                    value=f"[Clique aqui para entrar]({ROOM_LINK})",
-                    inline=False
+                    name="",
+                    value=f"```fix\n{ROOM_LINK}```",
+                    inline=True
                 )
-                embed.set_footer(text=f"Atualizado em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+
+                view = discord.ui.View()
+                view.add_item(discord.ui.Button(
+                label="QUARTO",
+                url=ROOM_LINK,
+                style=discord.ButtonStyle.link
+                ))
+
+                view.add_item(discord.ui.Button(
+                label="💎 VIP",
+                url="https://discord.com/channels/1186736897544945828/1211844747241586748",
+                style=discord.ButtonStyle.link
+                ))
+
+                embed.set_footer(text=f"🕔{datetime.now().strftime('%d/%m/%Y - %H:%M')}")
 
                 if MESSAGE_ID is None:
-                    msg = await channel.send(embed=embed)
+                    msg = await channel.send(embed=embed, view=view)
                     MESSAGE_ID = msg.id
                     save_message_id(MESSAGE_ID)
                     print(f"Mensagem enviada: {MESSAGE_ID}")
                 else:
                     try:
                         msg = await channel.fetch_message(MESSAGE_ID)
-                        await msg.edit(embed=embed)
+                        await msg.edit(embed=embed, view=view)
                         print("Mensagem atualizada")
                     except discord.errors.NotFound:
                         # Se a mensagem foi deletada, enviar nova
-                        msg = await channel.send(embed=embed)
+                        msg = await channel.send(embed=embed, view=view)
                         MESSAGE_ID = msg.id
                         save_message_id(MESSAGE_ID)
                         print("Mensagem anterior não encontrada. Nova mensagem enviada.")
