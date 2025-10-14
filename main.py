@@ -8,6 +8,7 @@ import discord
 from discord.ext import commands
 import uvicorn
 from dotenv import load_dotenv
+from zoneinfo import ZoneInfo
 
 # ------------------ CARREGAR VARIÁVEIS DE AMBIENTE ------------------
 load_dotenv()
@@ -120,7 +121,7 @@ async def update_embed_periodically():
                 style=discord.ButtonStyle.link
                 ))
 
-                embed.set_footer(text=f"🕔{datetime.now().strftime('%d/%m/%Y - %H:%M')}")
+                embed.set_footer(text=f"🕔{datetime.now(ZoneInfo("America/Sao_Paulo")).strftime('%d/%m/%Y - %H:%M')}")
 
                 if MESSAGE_ID is None:
                     msg = await channel.send(embed=embed, view=view)
