@@ -17,7 +17,7 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 PORT = int(os.getenv("PORT", 8000))
 ROOM_LINK = "https://www.habblet.city/room/6065930"
 GIF_URL = "https://cdn.discordapp.com/attachments/1303772458762895480/1424811285542863000/load-32.gif"
-UPDATE_INTERVAL = 20
+UPDATE_INTERVAL = 180
 API_KEY = os.getenv("API_KEY")
 
 MESSAGE_ID_FILE = "message_id.json"
